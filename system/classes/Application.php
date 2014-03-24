@@ -19,6 +19,7 @@ class Application
 		session_start();
 
 		$this->load_common_functions();
+		$this->set_base_url();
 		$this->load_config();
 		$this->process_uri();
 		$this->handle_routing();
@@ -28,7 +29,14 @@ class Application
 
 
 		// Instantiate controller
+
+		if (!file_exists("controllers/$this->controller.php"))
+			error_out("<b>Error:</b> File <i>controllers/{$this->controller}.php</i> does not exist.");
 		require "controllers/$this->controller.php";
+
+		if (!class_exists($this->controller, false))
+		error_out("<b>Error:</b>
+				File  <i>controllers/{$this->controller}.php</i> exists but class <i>{$this->controller}</i> does not. You probably copied the file but forgot to rename the class in the copy.");
 		$controller = new $this->controller;
 
 		// Make request and auth properties available to controller
@@ -38,8 +46,8 @@ class Application
 		$controller->auth = $this->auth;
 
 		// Check if the user has extended Controller
-		if(!isset($controller->requires_auth)){
-			$errors[] = 'You forgot the "<i>extends Controller</i>" part for the class <i>'.$controller->controller. '</i> in controllers/'.$controller->controller .'.php</i>. Fix it.';
+		if (!isset($controller->requires_auth)) {
+			$errors[] = 'You forgot the "<i>extends Controller</i>" part for the class <i>' . $controller->controller . '</i> in controllers/' . $controller->controller . '.php</i>. Fix it.';
 			require 'templates/error_template.php';
 			exit();
 		}
@@ -50,29 +58,49 @@ class Application
 		}
 
 		// Run the action
-        if(!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-            $action_name = $controller->action . '_ajax';
-            $controller->$action_name();
-            exit();
-        }else{
-            // Check for and process POST ( executes $action_post() )
-            if (isset($_POST) && !empty($_POST)) {
-                $action_name = $controller->action . '_post';
-                $controller->$action_name();
-            }
+		if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest' && method_exists($controller, $controller->action . '_ajax')) {
+			$action_name = $controller->action . '_ajax';
+			$controller->$action_name();
+			exit();
+		} else {
+			// Check for and process POST ( executes $action_post() )
+			if (isset($_POST) && !empty($_POST) && method_exists($controller, $controller->action . '_post')) {
+				$action_name = $controller->action . '_post';
+				$controller->$action_name();
+			}
 
-            // Proceed with regular action processing ( executes $action() )
-            $controller->{$controller->action}();
-            $controller->render($controller->template);
-        }
+			// Proceed with regular action processing ( executes $action() )
+			if(!method_exists($controller, $controller->action))
+				error_out("<b>Error:</b>
+				The action <i>{$controller->controller}::{$controller->action}()</i> does not exist.
+				Open <i>controllers/{$controller->controller}.php</i> and add method <i>{$controller->action}()</i>");
+			$controller->{$controller->action}();
+			$controller->render($controller->template);
+		}
 
 	}
 
+	private function load_common_functions()
+	{
+		require 'system/functions.php';
+
+	}
+
+	private function set_base_url()
+	{
+		$s = &$_SERVER;
+		$ssl = (!empty($s['HTTPS']) && $s['HTTPS'] == 'on') ? true:false;
+		$sp = strtolower($s['SERVER_PROTOCOL']);
+		$protocol = substr($sp, 0, strpos($sp, '/')) . (($ssl) ? 's' : '');
+		$port = $s['SERVER_PORT'];
+		$port = ((!$ssl && $port=='80') || ($ssl && $port=='443')) ? '' : ':'.$port;
+		$host = isset($s['HTTP_X_FORWARDED_HOST']) ? $s['HTTP_X_FORWARDED_HOST'] : isset($s['HTTP_HOST']) ? $s['HTTP_HOST'] : $s['SERVER_NAME'];
+		$uri = $protocol . '://' . $host . $port . dirname($_SERVER['SCRIPT_NAME']);
+		define('BASE_URL', rtrim($uri, '/') . '/');
+	}
 	private function load_config()
 	{
-		// System paths
-		define('BASE_URL', dirname($_SERVER['SCRIPT_NAME']) . '/');
-		define('ASSETS_URL', BASE_URL . 'assets/');
+
 
 
 		// Load config file or bail out
@@ -81,12 +109,6 @@ class Application
 		} else {
 			error_out('No config.php. Please make a copy of config.sample.php and name it config.php and configure it.');
 		}
-	}
-
-	private function load_common_functions()
-	{
-		require 'system/functions.php';
-
 	}
 
 	private function process_uri()
@@ -101,14 +123,14 @@ class Application
 		}
 	}
 
-	private function init_db()
-	{
-		require 'system/database.php';
-	}
-
 	private function handle_routing()
 	{
 		//TODO: write here your own code if you want to manipulate controller, action
+	}
+
+	private function init_db()
+	{
+		require 'system/database.php';
 	}
 
 }
